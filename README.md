@@ -1,13 +1,13 @@
-# Harry Potter Agentic RAG Chatbot
+# The Forbidden LibrAIry Agentic RAG Chatbot
 
-An intelligent conversational AI chatbot that answers questions about the Harry Potter universe using **Agentic RAG** (Retrieval-Augmented Generation). The chatbot autonomously decides when to retrieve information from the Harry Potter books and provides accurate, contextual answers.
+An intelligent conversational AI chatbot that answers questions about the Harry Potter book universe using **Agentic RAG** (Retrieval-Augmented Generation). The chatbot autonomously decides when to retrieve information from the Harry Potter books and provides accurate, contextual answers.
 
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![LangChain](https://img.shields.io/badge/LangChain-0.3-green.svg)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-orange.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.42-red.svg)
 
-## ✨ What Makes This Special?
+## What Makes This Special?
 
 This isn't just a simple question-answering system. It's an **agentic system** where an AI agent makes intelligent decisions about:
 - **When** to retrieve information from the knowledge base
@@ -93,13 +93,24 @@ Unlike traditional RAG systems that retrieve for every query, this chatbot uses 
 
 2. **Retrieval Tool**
    ```python
-   @tool(response_format="content_and_artifact")
-   def retrieve(query: str):
-       """Retrieve information related to a query."""
-       retrieved_docs = vector_store.similarity_search(query, k=2)
+@tool(response_format="content_and_artifact")
+def retrieve(query: str):
+    """Retrieve structured passages from the Harry Potter books."""
+    retrieved_docs = vector_store.similarity_search(query, k=4)
+
+    parts = []
+    for i, doc in enumerate(retrieved_docs, start=1):
+        meta = doc.metadata or {}
+        page = meta.get("page_label") or meta.get("page") or "unknown page"
+        parts.append(
+            f"--- Passage {i} (page {page}) ---\n{doc.page_content.strip()}"
+        )
+
+    context_text = "\n\n".join(parts)
+    return context_text, retrieved_docs
+
    ```
    - Performs semantic similarity search
-   - Returns top 2 most relevant document chunks
    - Includes source metadata for transparency
 
 3. **Agent Decision-Making**
@@ -147,41 +158,45 @@ Unlike traditional RAG systems that retrieve for every query, this chatbot uses 
    In your Supabase SQL editor, run:
    ```sql
    -- Enable the pgvector extension
-   create extension if not exists vector;
-
-   -- Create the documents table
-   create table documents (
-     id bigserial primary key,
-     content text,
-     metadata jsonb,
-     embedding vector(1536)
-   );
-
-   -- Create a function for similarity search
-   create or replace function match_documents(
-     query_embedding vector(1536),
-     match_threshold float,
-     match_count int
-   )
-   returns table (
-     id bigint,
-     content text,
-     metadata jsonb,
-     similarity float
-   )
-   language sql stable
-   as $$
-     select
-       documents.id,
-       documents.content,
-       documents.metadata,
-       1 - (documents.embedding <=> query_embedding) as similarity
-     from documents
-     where 1 - (documents.embedding <=> query_embedding) > match_threshold
-     order by similarity desc
-     limit match_count;
-   $$;
-   ```
+         --create extension if not exists vector;
+         
+         -- Drop old function and table if they exist
+         drop function if exists match_documents(vector, float, int);
+         drop table if exists documents;
+         
+         -- Create the documents table with UUID id
+         create table documents (
+           id uuid primary key,
+           content text,
+           metadata jsonb,
+           embedding vector(1536)
+         );
+         
+         -- Create a function for similarity search
+         create or replace function match_documents(
+           query_embedding vector(1536),
+           match_threshold float,
+           match_count int
+         )
+         returns table (
+           id uuid,
+           content text,
+           metadata jsonb,
+           similarity float
+         )
+         language sql stable
+         as $$
+           select
+             documents.id,
+             documents.content,
+             documents.metadata,
+             1 - (documents.embedding <=> query_embedding) as similarity
+           from documents
+           where 1 - (documents.embedding <=> query_embedding) > match_threshold
+           order by similarity desc
+           limit match_count;
+         $$;
+         --
 
 5. **Ingest the Harry Potter documents**
    ```bash
@@ -248,5 +263,3 @@ Feel free to fork this project and submit pull requests for improvements!
 
 ---
 
-# Harry-Potter-GPT
-# Harry-Potter-GPT
