@@ -11,8 +11,10 @@ load_dotenv()
 
 # supabase_url = SUPABASE_URL
 # supabase_key = SUPABASE_SERVICE_KEY
-supabase_url = os.environ.get("SUPABASE_URL")
-supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
+# supabase_url = os.environ.get("SUPABASE_URL")
+# supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
+supabase_url = os.environ.get("SUPABASE_URL") or st.secrets("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_SERVICE_KEY") or st.secrets("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
 # os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
