@@ -1,27 +1,20 @@
 import os
 from dotenv import load_dotenv
-from langchain.agents import AgentExecutor
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.agents import create_tool_calling_agent
-from langchain_core.prompts import PromptTemplate
-from langchain_community.vectorstores import SupabaseVectorStore
-from langchain_openai import OpenAIEmbeddings
-from langchain import hub
-from supabase.client import Client, create_client
+from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.tools import tool
+from langchain_community.vectorstores import SupabaseVectorStore
+from supabase.client import create_client, Client
 
-load_dotenv()  
+load_dotenv()
 
+# --- SUPABASE CONNECTION ---
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 
-# supabase_url = SUPABASE_URL
-# supabase_key = SUPABASE_SERVICE_KEY
-# supabase_url = os.environ.get("SUPABASE_URL")
-# supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
-supabase_url = os.environ.get("SUPABASE_URL") or st.secrets("SUPABASE_URL")
-supabase_key = os.environ.get("SUPABASE_SERVICE_KEY") or st.secrets("SUPABASE_SERVICE_KEY")
-
-# os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+if not supabase_url or not supabase_key:
+    raise ValueError("❌ Missing SUPABASE_URL or SUPABASE_SERVICE_KEY in environment variables.")
 
 supabase: Client = create_client(supabase_url, supabase_key)
 
@@ -34,25 +27,71 @@ vector_store = SupabaseVectorStore(
     query_name="match_documents",
 )
 
-llm = ChatOpenAI(temperature=0) # temperature = 0 means the model will always give the same output for the same input
+# --- LLM ---
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
-prompt = hub.pull("hwchase17/openai-functions-agent")
 
+# --- RETRIEVE TOOL ---
 @tool(response_format="content_and_artifact")
 def retrieve(query: str):
-    """Retrieve information related to a query."""
-    retrieved_docs = vector_store.similarity_search(query, k=2)
-    serialized = "\n\n".join(
-        (f"Source: {doc.metadata}\n" f"Content: {doc.page_content}")
-        for doc in retrieved_docs
-    )
-    return serialized, retrieved_docs
+    """
+    Retrieve relevant Harry Potter passages.
+    Clean, structured for the LLM.
+    """
+    retrieved_docs = vector_store.similarity_search(query, k=4)
+
+    parts = []
+    for i, doc in enumerate(retrieved_docs, start=1):
+        meta = doc.metadata or {}
+        page = meta.get("page_label") or meta.get("page") or "unknown page"
+        parts.append(
+            f"--- Passage {i} (page {page}) ---\n{doc.page_content.strip()}"
+        )
+
+    context_text = "\n\n".join(parts)
+    return context_text, retrieved_docs
+
+
+# --- PROMPT ---
+prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """
+You are a friendly Harry Potter BOOK-ONLY assistant.
+
+Your abilities:
+- You MAY interpret personalities, motives, relationships, themes, and actions.
+- You MAY reason about Snape, Dumbledore, Voldemort, etc.
+- You MAY combine retrieved passages with your full knowledge of the books.
+
+Your limits:
+1. You operate ONLY inside the BOOK universe.
+2. If the user asks about anything NON-Harry-Potter (Elon Musk, Marvel, politics),
+   respond: "I can only answer questions about the Harry Potter books."
+3. You MUST be honest about retrieved passages:
+   - If the context does NOT contain the exact event/quote asked for,
+     say: "The retrieved text does not show this exact moment."
+4. You may still answer from your overall knowledge of the books afterward.
+5. NEVER hallucinate page numbers, quotes, or scenes that were not retrieved.
+
+Answer style:
+- Clear, structured, book-accurate.
+- Refer back to retrieved text when relevant.
+"""
+        ),
+        ("human", "{input}"),
+        MessagesPlaceholder("agent_scratchpad"),
+    ]
+)
 
 tools = [retrieve]
+
 agent = create_tool_calling_agent(llm, tools, prompt)
+executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-
-response = agent_executor.invoke({"input": "Name everyone in Ron's family"})
-
-print(response["output"])
+if __name__ == "__main__":
+    question = input("Ask something from Harry Potter: ")
+    response = executor.invoke({"input": question})
+    print("\n--- ANSWER ---\n")
+    print(response["output"])
